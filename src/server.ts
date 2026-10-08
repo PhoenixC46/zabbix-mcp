@@ -16,7 +16,7 @@ import { registerTriggerTools } from "./tools/triggers.js";
 import { registerItemTools } from "./tools/items.js";
 
 export const ZABBIX_SERVER_NAME = "zabbix-mcp";
-export const ZABBIX_SERVER_VERSION = "0.4.0";
+export const ZABBIX_SERVER_VERSION = "0.4.1-managed247.1";
 
 export const ZABBIX_INSTRUCTIONS =
   "Zabbix MCP server for infrastructure monitoring, incidents, host inventory, trigger analysis, and metric history. " +
@@ -30,6 +30,54 @@ export function createZabbixServer(config: ZabbixConfig): McpServer {
     { name: ZABBIX_SERVER_NAME, version: ZABBIX_SERVER_VERSION },
     { instructions: ZABBIX_INSTRUCTIONS }
   );
+
+  // --- client-compatibility shim (Managed247 fork) ----------------------
+  // Upstream 0.4.x declares an `outputSchema` on every tool for structured
+  // output. The MCP SDK serialises those schemas as JSON Schema draft-07,
+  // and some strict MCP clients (which validate tool output against JSON
+  // Schema 2020-12 only) reject every such tool before its data is returned.
+  // We strip `outputSchema` at registration and drop the paired
+  // `structuredContent` from results, falling back to the text `content`
+  // block the handlers already produce. Net effect: identical tools and
+  // data, no draft-07 schema for a client to reject. Remove this shim once
+  // upstream emits 2020-12 (or makes outputSchema optional).
+  const srv = server as unknown as { registerTool: (...a: any[]) => unknown };
+  const originalRegisterTool = srv.registerTool.bind(server);
+  srv.registerTool = (
+    name: string,
+    config: Record<string, unknown>,
+    handler: (...args: unknown[]) => unknown
+  ) => {
+    const { outputSchema: _outputSchema, ...rest } = config ?? {};
+    const wrappedHandler = async (...args: unknown[]) => {
+      const res = await handler(...args);
+      if (res && typeof res === "object" && "structuredContent" in res) {
+        const { structuredContent, ...keep } = res as {
+          structuredContent: unknown;
+          content?: unknown;
+        };
+        if (!("content" in keep) || !keep.content) {
+          (keep as { content: unknown }).content = [
+            {
+              type: "text",
+              text:
+                typeof structuredContent === "string"
+                  ? structuredContent
+                  : JSON.stringify(structuredContent, null, 2),
+            },
+          ];
+        }
+        return keep;
+      }
+      return res;
+    };
+    return originalRegisterTool(
+      name as never,
+      rest as never,
+      wrappedHandler as never
+    );
+  };
+  // ----------------------------------------------------------------------
 
   registerSystemTools(server, client);
   registerHostTools(server, client);
