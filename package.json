@@ -1,7 +1,7 @@
 {
   "name": "@nks-hub/zabbix-mcp",
-  "version": "0.4.1",
-  "description": "MCP server for Zabbix monitoring: hosts, problems, triggers, events, items, and acknowledgements",
+  "version": "0.4.1-managed247.1",
+  "description": "MCP server for Zabbix monitoring (Managed247 fork: draft-07 outputSchema stripped for strict MCP clients)",
   "type": "module",
   "main": "build/server.js",
   "types": "build/server.d.ts",
